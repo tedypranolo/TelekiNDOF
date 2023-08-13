@@ -16,6 +16,8 @@
 # You can find out more about Serpens at <https://blendermarket.com/products/serpens>.
 
 from datetime import datetime
+
+
 bl_info = {
     "name": "TelekiNDOF",
     "description": "This addon add mouvement control to object with 3d Connexion Space Mouse, I want a take the opportunity to thanks github user johnhw for the code pyspacenavigator used by this addon",
@@ -34,13 +36,13 @@ import sys
 import os
 import subprocess
 
-py_exec = str(sys.executable)
-# ensure pip is installed
-subprocess.call([py_exec, "-m", "ensurepip", "--user"])
-# update pip (not mandatory but highly recommended)
-subprocess.call([py_exec, "-m", "pip", "install", "--upgrade", "pip"])
-# install packages
-subprocess.call([py_exec, "-m", "pip", "install", f"--target={py_exec[:-14]}" + "lib", "pywinusb"])
+# py_exec = str(sys.executable)
+# # ensure pip is installed
+# subprocess.call([py_exec, "-m", "ensurepip", "--user"])
+# # update pip (not mandatory but highly recommended)
+# subprocess.call([py_exec, "-m", "pip", "install", "--upgrade", "pip"])
+# # install packages
+# subprocess.call([py_exec, "-m", "pip", "install", f"--target={py_exec[:-14]}" + "lib", "pywinusb"])
 
 # -------------------- Add Space Navigator
 # ----------------------------------------------
@@ -62,11 +64,18 @@ if "bpy" in locals():
     import spacenavigator
 
     importlib.reload(spacenavigator)
+
+    import threeple
+    importlib.reload(threeple)
 else:
     from . import spacenavigator
 
+from .threeple import Threeple
+
 import bpy
 import bpy.utils.previews
+from bpy.props import FloatVectorProperty, FloatProperty
+from mathutils import Vector
 
 #   INITALIZE VARIABLES
 telekindof = {
@@ -212,11 +221,11 @@ def sn_cast_blend_data(value):
 
 
 def sn_cast_enum(string, enum_values):
-    for item in enum_values:
-        if item[1] == string:
-            return item[0]
-        elif item[0] == string.upper():
-            return item[0]
+    for it in enum_values:
+        if it[1] == string:
+            return it[0]
+        elif it[0] == string.upper():
+            return it[0]
     return string
 
 
@@ -447,31 +456,22 @@ class ModalOperator(bpy.types.Operator):
     """Move an object with the mouse, example"""
     bl_idname = "object.modal_operator"
     bl_label = "Simple Modal Operator"
-    from bpy.props import IntProperty, FloatProperty
-    first_state_x: FloatProperty()
-    first_valuex: FloatProperty()
-    svaluex: FloatProperty()
-    first_state_y: FloatProperty()
-    first_valuey: FloatProperty()
-    valuey: FloatProperty()
-    first_state_z: FloatProperty()
-    first_valuez: FloatProperty()
-    valuez: FloatProperty()
-    first_state_roll: FloatProperty()
-    first_valueroll: FloatProperty()
-    valueroll: FloatProperty()
-    first_state_pitch: FloatProperty()
-    first_valuepitch: FloatProperty()
-    valuepitch: FloatProperty()
-    first_state_yaw: FloatProperty()
-    first_valueyaw: FloatProperty()
-    valueyaw: FloatProperty()
-    sensx: FloatProperty()
-    sensy: FloatProperty()
-    sensz: FloatProperty()
-    sensrx: FloatProperty()
-    sensry: FloatProperty()
-    sensrz: FloatProperty()
+
+    # Location related properties
+    first_state_location: FloatVectorProperty(size=3)
+    first_value_location: FloatVectorProperty(size=3)
+    value_location: FloatVectorProperty(size=3)
+
+    # Rotation related properties
+    first_state_rotation: FloatVectorProperty(size=3, name="First State Rotation")
+    first_value_rotation: FloatVectorProperty(size=3, name="First Value Rotation")
+    value_rotation: FloatVectorProperty(size=3, name="Value Rotation")
+
+    # Sensitivities for translation and rotation
+    sens: FloatVectorProperty(size=3, name="Translation Sensitivity")
+    sensr: FloatVectorProperty(size=3, name="Rotation Sensitivity")
+
+    # Inversions
     invup: FloatProperty()
     invfront: FloatProperty()
     invright: FloatProperty()
@@ -479,79 +479,90 @@ class ModalOperator(bpy.types.Operator):
     invpitch: FloatProperty()
     invyaw: FloatProperty()
 
+    def move_and_rotate(obj, state, panel_properties):
+
+        # Process values using the new method
+        x = panel_properties.process_value(state, 'x')
+        y = panel_properties.process_value(state, 'y')
+        z = panel_properties.process_value(state, 'z')
+
+        # Move the object
+        obj.location.x += x
+        obj.location.y += y
+        obj.location.z += z
+
+        # Process values for rotations
+        pitch = panel_properties.process_value(state, 'pitch')
+        yaw = panel_properties.process_value(state, 'yaw')
+        roll = panel_properties.process_value(state, 'roll')
+
+        # Rotate the object
+        obj.rotation_euler.x += pitch
+        obj.rotation_euler.y += yaw
+        obj.rotation_euler.z += roll
+
     def modal(self, context, event):
         if event.type == 'NDOF_MOTION':
+
             state = spacenavigator.read()
+
             # Mappings
             bindings = ['upbinding', 'rightbinding', 'frontbinding', 'rollbinding', 'pitchbinding', 'yawbinding']
             states = {'upbinding': 'z', 'rightbinding': 'x', 'frontbinding': 'y', 'rollbinding': 'roll',
                       'pitchbinding': 'pitch', 'yawbinding': 'yaw'}
             inversions = {'upbinding': 'invup', 'rightbinding': 'invright', 'frontbinding': 'invfront',
                           'rollbinding': 'invroll', 'pitchbinding': 'invpitch', 'yawbinding': 'invyaw'}
-            deltas = {'x': 0, 'y': 0, 'z': 0, 'roll': 0, 'pitch': 0, 'yaw': 0}
 
+            # Initialize vectors
+            delta_location = Threeple((0, 0, 0))
+            delta_rotation = Threeple((0, 0, 0))
+
+            first_state_loc = Threeple(self.first_state_location)
+            first_state_rot = Threeple(self.first_state_rotation)
             # Compute deltas
             for binding in bindings:
                 binding_value = getattr(bpy.context.scene, binding)
-                if binding_value in deltas:
-                    deltas[binding_value] = getattr(self, f'first_state_{binding_value}') - getattr(state, states[
-                        binding]) * getattr(self, inversions[binding])
+                state_value = getattr(state, states[binding]) * getattr(self, inversions[binding])
+                mapped_attr = states[binding]
+                if binding_value in ['x', 'y', 'z']:
+                    print(f"binding {binding}, binding_value {binding_value}")
+                    delta_location[mapped_attr] = first_state_loc[binding_value] - state_value
+                else:
+                    delta_rotation[mapped_attr] = first_state_rot[binding_value] - state_value
 
-            # Update locations and rotations
-            context.object.location.x = self.valuex + deltas['x'] * self.sensx
-            context.object.location.y = self.valuey + deltas['y'] * self.sensy
-            context.object.location.z = self.valuez + deltas['z'] * self.sensz
-            context.object.rotation_euler.y = self.valueroll + deltas['roll'] * self.sensry
-            context.object.rotation_euler.x = self.valuepitch + deltas['pitch'] * self.sensrx
-            context.object.rotation_euler.z = self.valueyaw + deltas['yaw'] * self.sensrz
+                # Update locations and rotations
+                target = context.active_object
+                target.location += (delta_location * self.sens).vector
+                target.rotation_euler = (target.rotation_euler + delta_rotation * self.sensr).as_tuple()
 
-            # Set current position value to variable for next increment
-            self.valuex += deltas['x'] * self.sensx
-            self.valuey += deltas['y'] * self.sensy
-            self.valuez += deltas['z'] * self.sensz
-            self.valueroll += deltas['roll'] * self.sensry
-            self.valuepitch += deltas['pitch'] * self.sensrx
-            self.valueyaw += deltas['yaw'] * self.sensrz
+                # Set current position value to variable for next increment
+                self.value_location = target.location.copy()
+                self.value_rotation = target.rotation_euler.copy()
         elif event.type == 'LEFTMOUSE':
             return {'FINISHED'}
         elif event.type in {'RIGHTMOUSE', 'ESC'}:
-            context.object.location.x = self.first_valuex
-            context.object.location.y = self.first_valuey
-            context.object.location.z = self.first_valuez
-            context.object.rotation_euler.y = self.first_valueroll
-            context.object.rotation_euler.x = self.first_valuepitch
-            context.object.rotation_euler.z = self.first_valueyaw
+            context.object.location = self.first_value_location
+            context.object.rotation.y = self.first_value_rotation
             return {'CANCELLED'}
         return {'RUNNING_MODAL'}
 
     def invoke(self, context, event):
         success = spacenavigator.open()
-        print(f"invoke success:{vars(success)}")
         if context.object:
-            self.first_state_x = 0
-            self.first_valuex = context.object.location.x
-            self.valuex = context.object.location.x
-            self.first_state_y = 0
-            self.first_valuey = context.object.location.y
-            self.valuey = context.object.location.y
-            self.first_state_z = 0
-            self.first_valuez = context.object.location.z
-            self.valuez = context.object.location.z
-            self.first_state_roll = 0
-            self.first_valueroll = context.object.rotation_euler.y
-            self.valueroll = context.object.rotation_euler.y
-            self.first_state_pitch = 0
-            self.first_valuepitch = context.object.rotation_euler.x
-            self.valuepitch = context.object.rotation_euler.x
-            self.first_state_yaw = 0
-            self.first_valueyaw = context.object.rotation_euler.z
-            self.valueyaw = context.object.rotation_euler.z
-            self.sensx = bpy.context.scene.transsens[0]
-            self.sensy = bpy.context.scene.transsens[1]
-            self.sensz = bpy.context.scene.transsens[2]
-            self.sensrx = bpy.context.scene.rotsens[0]
-            self.sensry = bpy.context.scene.rotsens[1]
-            self.sensrz = bpy.context.scene.rotsens[2]
+            # Initialize first_state vectors
+            self.first_state_location = Vector((0, 0, 0))
+            self.first_state_rotation = Vector((0, 0, 0))
+
+            # Copy object's location and rotation
+            self.first_value_location = context.object.location.copy()
+            self.value_location = context.object.location.copy()
+            self.first_value_rotation = context.object.rotation_euler.copy()
+            self.value_rotation = context.object.rotation_euler.copy()
+
+            # Sensitivities
+            self.sens = bpy.context.scene.transsens
+            self.sensr = bpy.context.scene.rotsens
+
             if bpy.context.scene.upinv:
                 self.invup = -1
             else:
