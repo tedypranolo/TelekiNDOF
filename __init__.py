@@ -17,7 +17,6 @@
 
 from datetime import datetime
 
-
 bl_info = {
     "name": "TelekiNDOF",
     "description": "This addon add mouvement control to object with 3d Connexion Space Mouse, I want a take the opportunity to thanks github user johnhw for the code pyspacenavigator used by this addon",
@@ -66,6 +65,7 @@ if "bpy" in locals():
     importlib.reload(spacenavigator)
 
     import threeple
+
     importlib.reload(threeple)
 else:
     from . import spacenavigator
@@ -75,7 +75,7 @@ from .threeple import Threeple
 import bpy
 import bpy.utils.previews
 from bpy.props import FloatVectorProperty, FloatProperty
-from mathutils import Vector
+from mathutils import Vector, Matrix
 
 #   INITALIZE VARIABLES
 telekindof = {
@@ -525,24 +525,29 @@ class ModalOperator(bpy.types.Operator):
                 state_value = getattr(state, states[binding]) * getattr(self, inversions[binding])
                 mapped_attr = states[binding]
                 if binding_value in ['x', 'y', 'z']:
-                    print(f"binding {binding}, binding_value {binding_value}")
                     delta_location[mapped_attr] = first_state_loc[binding_value] - state_value
                 else:
                     delta_rotation[mapped_attr] = first_state_rot[binding_value] - state_value
 
-                # Update locations and rotations
-                target = context.active_object
-                target.location += (delta_location * self.sens).vector
-                target.rotation_euler = (target.rotation_euler + delta_rotation * self.sensr).as_tuple()
-
-                # Set current position value to variable for next increment
-                self.value_location = target.location.copy()
-                self.value_rotation = target.rotation_euler.copy()
+            # Update locations and rotations
+            target = context.active_object
+            # Get the current view matrix
+            view_rotation = bpy.context.region_data.view_rotation
+            translation_vector = (delta_location * self.sens).vector
+            target.location += view_rotation @ translation_vector
+            rotation_euler = (delta_rotation * self.sensr).as_euler()
+            # Pre-multiply this matrix by the view's rotation
+            oriented_quaternion = view_rotation * rotation_euler.to_quaternion()
+            # Set this combined Euler rotation to the target
+            target.rotation_euler.rotate(oriented_quaternion.to_euler())
+            # Set current position value to variable for next increment
+            self.value_location = target.location.copy()
+            self.value_rotation = target.rotation_euler.copy()
         elif event.type == 'LEFTMOUSE':
             return {'FINISHED'}
         elif event.type in {'RIGHTMOUSE', 'ESC'}:
             context.object.location = self.first_value_location
-            context.object.rotation.y = self.first_value_rotation
+            context.object.rotation_euler = self.first_value_rotation
             return {'CANCELLED'}
         return {'RUNNING_MODAL'}
 

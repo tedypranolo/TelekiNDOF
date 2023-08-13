@@ -52,8 +52,14 @@ class Threeple(ItemAccess):
     pitch = y
     yaw = z
 
+    def __str__(self):
+        return str(self.as_tuple())
+
     def as_tuple(self):
         return self.vector.x, self.vector.y, self.vector.z
+
+    def as_euler(self):
+        return Euler((self.vector.x, self.vector.y, self.vector.z), 'XYZ')
 
     def __getitem__(self, key):
         if isinstance(key, str):
