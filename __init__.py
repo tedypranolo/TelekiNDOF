@@ -75,7 +75,7 @@ from .threeple import Threeple
 import bpy
 import bpy.utils.previews
 from bpy.props import FloatVectorProperty, FloatProperty
-from mathutils import Vector, Matrix
+from mathutils import Vector, Matrix, Quaternion, Euler
 
 #   INITALIZE VARIABLES
 telekindof = {
@@ -501,7 +501,33 @@ class ModalOperator(bpy.types.Operator):
         obj.rotation_euler.y += yaw
         obj.rotation_euler.z += roll
 
+    def apply_rotation_in_view_space(self, view_rot, target, controller_rot):
+        # Compute rotations in view space for each axis
+        rotation_x_in_view = Quaternion((1, 0, 0), controller_rot.y)
+        rotation_y_in_view = Quaternion((0, 1, 0), controller_rot.z)
+        rotation_z_in_view = Quaternion((0, 0, 1), controller_rot.x)
+
+        # Combine the rotations
+        combined_rotation_in_view = rotation_x_in_view @ rotation_y_in_view @ rotation_z_in_view
+
+        # Convert the combined rotation from view space to world space
+        combined_rotation_in_world = view_rot @ combined_rotation_in_view @ view_rot.inverted()
+
+        target.rotation_mode = "QUATERNION"
+        # Apply the computed rotation to the object
+        target.rotation_quaternion = combined_rotation_in_world @ target.rotation_quaternion
+
     def modal(self, context, event):
+        _, kmi = addon_keymaps.get("9DCCD", (None, None))
+        if kmi:
+            # Check against the registered keymap
+            if event.type == kmi.type and event.value == 'PRESS':
+                if event.ctrl == kmi.ctrl and \
+                        event.alt == kmi.alt and \
+                        event.shift == kmi.shift:
+                    print("Finishing the modal operator due to same shortcut.")
+                    return {'FINISHED'}
+
         if event.type == 'NDOF_MOTION':
 
             state = spacenavigator.read()
@@ -529,17 +555,15 @@ class ModalOperator(bpy.types.Operator):
                 else:
                     delta_rotation[mapped_attr] = first_state_rot[binding_value] - state_value
 
+            print(f"states {state}")
             # Update locations and rotations
             target = context.active_object
             # Get the current view matrix
             view_rotation = bpy.context.region_data.view_rotation
             translation_vector = (delta_location * self.sens).vector
             target.location += view_rotation @ translation_vector
-            rotation_euler = (delta_rotation * self.sensr).as_euler()
-            # Pre-multiply this matrix by the view's rotation
-            oriented_quaternion = view_rotation * rotation_euler.to_quaternion()
-            # Set this combined Euler rotation to the target
-            target.rotation_euler.rotate(oriented_quaternion.to_euler())
+            controller_rotation = (delta_rotation * self.sensr).as_euler()
+            self.apply_rotation_in_view_space(view_rotation, target, controller_rotation)
             # Set current position value to variable for next increment
             self.value_location = target.location.copy()
             self.value_rotation = target.rotation_euler.copy()
@@ -551,52 +575,61 @@ class ModalOperator(bpy.types.Operator):
             return {'CANCELLED'}
         return {'RUNNING_MODAL'}
 
+    is_running = False
+
     def invoke(self, context, event):
-        success = spacenavigator.open()
-        if context.object:
-            # Initialize first_state vectors
-            self.first_state_location = Vector((0, 0, 0))
-            self.first_state_rotation = Vector((0, 0, 0))
-
-            # Copy object's location and rotation
-            self.first_value_location = context.object.location.copy()
-            self.value_location = context.object.location.copy()
-            self.first_value_rotation = context.object.rotation_euler.copy()
-            self.value_rotation = context.object.rotation_euler.copy()
-
-            # Sensitivities
-            self.sens = bpy.context.scene.transsens
-            self.sensr = bpy.context.scene.rotsens
-
-            if bpy.context.scene.upinv:
-                self.invup = -1
-            else:
-                self.invup = 1
-            if bpy.context.scene.frontinv:
-                self.invfront = -1
-            else:
-                self.invfront = 1
-            if bpy.context.scene.rightinv:
-                self.invright = -1
-            else:
-                self.invright = 1
-            if bpy.context.scene.rollinv:
-                self.invroll = -1
-            else:
-                self.invroll = 1
-            if bpy.context.scene.pitchinv:
-                self.invpitch = -1
-            else:
-                self.invpitch = 1
-            if bpy.context.scene.yawinv:
-                self.invyaw = -1
-            else:
-                self.invyaw = 1
-            context.window_manager.modal_handler_add(self)
-            return {'RUNNING_MODAL'}
-        else:
-            self.report({'WARNING'}, "No active object, could not finish")
+        if self.is_running:
+            print("Stopping the modal operator.")
+            self.is_running = False
             return {'CANCELLED'}
+        else:
+            print("Starting the modal operator.")
+            self.is_running = True
+            success = spacenavigator.open()
+            if context.object:
+                # Initialize first_state vectors
+                self.first_state_location = Vector((0, 0, 0))
+                self.first_state_rotation = Vector((0, 0, 0))
+
+                # Copy object's location and rotation
+                self.first_value_location = context.object.location.copy()
+                self.value_location = context.object.location.copy()
+                self.first_value_rotation = context.object.rotation_euler.copy()
+                self.value_rotation = context.object.rotation_euler.copy()
+
+                # Sensitivities
+                self.sens = bpy.context.scene.transsens
+                self.sensr = bpy.context.scene.rotsens
+
+                if bpy.context.scene.upinv:
+                    self.invup = -1
+                else:
+                    self.invup = 1
+                if bpy.context.scene.frontinv:
+                    self.invfront = -1
+                else:
+                    self.invfront = 1
+                if bpy.context.scene.rightinv:
+                    self.invright = -1
+                else:
+                    self.invright = 1
+                if bpy.context.scene.rollinv:
+                    self.invroll = -1
+                else:
+                    self.invroll = 1
+                if bpy.context.scene.pitchinv:
+                    self.invpitch = -1
+                else:
+                    self.invpitch = 1
+                if bpy.context.scene.yawinv:
+                    self.invyaw = -1
+                else:
+                    self.invyaw = 1
+                context.window_manager.modal_handler_add(self)
+                return {'RUNNING_MODAL'}
+            else:
+                self.report({'WARNING'}, "No active object, could not finish")
+                return {'CANCELLED'}
 
 
 class SNA_OT_Telekin(bpy.types.Operator):
