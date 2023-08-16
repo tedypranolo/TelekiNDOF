@@ -517,7 +517,8 @@ class ModalOperator(bpy.types.Operator):
         # Apply the computed rotation to the object
         target.rotation_quaternion = combined_rotation_in_world @ target.rotation_quaternion
 
-    def modal(self, context, event):
+    @staticmethod
+    def is_shortcut_invoked(event):
         _, kmi = addon_keymaps.get("9DCCD", (None, None))
         if kmi:
             # Check against the registered keymap
@@ -526,7 +527,23 @@ class ModalOperator(bpy.types.Operator):
                         event.alt == kmi.alt and \
                         event.shift == kmi.shift:
                     print("Finishing the modal operator due to same shortcut.")
-                    return {'FINISHED'}
+                    return True
+        return False
+
+    def get_active_object(self):
+        obj = bpy.context.active_object
+        if obj.type == 'ARMATURE':
+            selected_pose_bones = [bone for bone in obj.pose.bones if bone.bone.select]
+            for bone in selected_pose_bones:
+                print(bone.name)
+            return selected_pose_bones[0]
+
+        else:
+            return obj
+
+    def modal(self, context, event):
+        if self.is_shortcut_invoked(event):
+            return {"FINISHED"}
 
         if event.type == 'NDOF_MOTION':
 
@@ -557,7 +574,7 @@ class ModalOperator(bpy.types.Operator):
 
             print(f"states {state}")
             # Update locations and rotations
-            target = context.active_object
+            target = self.get_active_object()
             # Get the current view matrix
             view_rotation = bpy.context.region_data.view_rotation
             translation_vector = (delta_location * self.sens).vector
