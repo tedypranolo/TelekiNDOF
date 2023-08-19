@@ -48,9 +48,9 @@ class Threeple(ItemAccess):
     def z(self, value):
         self.vector.z = value
 
-    roll = x
-    pitch = y
-    yaw = z
+    roll = z
+    pitch = x
+    yaw = y
 
     def __str__(self):
         return str(self.as_tuple())
@@ -103,3 +103,9 @@ class Threeple(ItemAccess):
 
     def __iter__(self):
         return iter(self.vector)
+
+    def __matmul__(self, other):
+        return self.vector @ other
+
+    def __rmatmul__(self, other):
+        return other @ self.vector

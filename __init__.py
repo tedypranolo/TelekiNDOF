@@ -503,15 +503,16 @@ class ModalOperator(bpy.types.Operator):
 
     def apply_rotation_in_view_space(self, view_rot, target, controller_rot):
         # Compute rotations in view space for each axis
-        rotation_x_in_view = Quaternion((1, 0, 0), controller_rot.y)
-        rotation_y_in_view = Quaternion((0, 1, 0), controller_rot.z)
-        rotation_z_in_view = Quaternion((0, 0, 1), controller_rot.x)
-
+        # rotation_x_in_view = Quaternion((1, 0, 0), controller_rot.x)
+        # rotation_y_in_view = Quaternion((0, 1, 0), controller_rot.y)
+        # rotation_z_in_view = Quaternion((0, 0, 1), controller_rot.z)
+        # combined_rotation_in_view = rotation_x_in_view @ rotation_y_in_view @ rotation_z_in_view
+        rot = controller_rot.to_quaternion()
         # Combine the rotations
-        combined_rotation_in_view = rotation_x_in_view @ rotation_y_in_view @ rotation_z_in_view
+
 
         # Convert the combined rotation from view space to world space
-        combined_rotation_in_world = view_rot @ combined_rotation_in_view @ view_rot.inverted()
+        combined_rotation_in_world = view_rot @ rot @ view_rot.inverted()
 
         target.rotation_mode = "QUATERNION"
         # Apply the computed rotation to the object
