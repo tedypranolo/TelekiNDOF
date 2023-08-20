@@ -501,22 +501,116 @@ class ModalOperator(bpy.types.Operator):
         obj.rotation_euler.y += yaw
         obj.rotation_euler.z += roll
 
+    def get_combined_parent_rotation(self, bone):
+        """Recursively get the combined rotation of all parent bones."""
+        if bone.parent:
+            return bone.parent.rotation_quaternion @ self.get_combined_parent_rotation(bone.parent)
+        else:
+            return Quaternion((1, 0, 0, 0))
+
+    def get_pose_bone_world_matrix(self, pose_bone):
+        """Get the world matrix of a pose bone."""
+        armature_world_matrix = pose_bone.id_data.matrix_world
+        return armature_world_matrix @ pose_bone.matrix
+
+    def get_world_matrix(self, pose_bone):
+        """
+        Recursively compute the world matrix of a pose bone.
+        """
+        armature_obj = pose_bone.id_data
+        return armature_obj.matrix_world @ pose_bone.matrix
+        # if pose_bone.parent:
+        #     return self.get_world_matrix(pose_bone.parent) @ pose_bone.matrix
+        # else:
+        #     return armature_obj.matrix_world @ pose_bone.matrix_basis
+
+    def set_world_matrix(self, pose_bone, additive_quaternion):
+        """
+        Sets the world rotation of a given pose bone additively using a quaternion.
+        """
+        armature_obj = pose_bone.id_data
+
+        # Get the current world matrix of the pose bone
+        current_world_matrix = self.get_world_matrix(pose_bone)
+
+        # Extract location, rotation, and scale from the current world matrix
+        world_loc, world_rot, world_scale = current_world_matrix.decompose()
+        print(f"world rot {world_rot} {additive_quaternion}")
+        # Apply the additive quaternion to the world rotation
+        new_world_rot = world_rot @ additive_quaternion
+
+        # Construct the new world matrix
+        new_world_matrix = Matrix.Translation(world_loc)
+        new_world_matrix = new_world_matrix @ new_world_rot.to_matrix().to_4x4()
+        new_world_matrix = new_world_matrix @ Matrix.Diagonal(world_scale).to_4x4()
+
+        if pose_bone.parent:
+            parent_world_matrix = self.get_world_matrix(pose_bone.parent)
+            local_matrix = parent_world_matrix.inverted() @ new_world_matrix
+        else:
+            # If no parent, then the local matrix is derived from the armature's world matrix
+            local_matrix = armature_obj.matrix_world.inverted() @ new_world_matrix
+
+        loc, rot, scale = local_matrix.decompose()
+        pose_bone.location = loc
+        pose_bone.rotation_quaternion = rot
+        pose_bone.scale = scale
+
     def apply_rotation_in_view_space(self, view_rot, target, controller_rot):
-        # Compute rotations in view space for each axis
-        # rotation_x_in_view = Quaternion((1, 0, 0), controller_rot.x)
-        # rotation_y_in_view = Quaternion((0, 1, 0), controller_rot.y)
-        # rotation_z_in_view = Quaternion((0, 0, 1), controller_rot.z)
-        # combined_rotation_in_view = rotation_x_in_view @ rotation_y_in_view @ rotation_z_in_view
         rot = controller_rot.to_quaternion()
-        # Combine the rotations
-
-
-        # Convert the combined rotation from view space to world space
         combined_rotation_in_world = view_rot @ rot @ view_rot.inverted()
 
-        target.rotation_mode = "QUATERNION"
-        # Apply the computed rotation to the object
-        target.rotation_quaternion = combined_rotation_in_world @ target.rotation_quaternion
+        # Check if the target is a pose bone
+        if isinstance(target, bpy.types.PoseBone):
+
+            # Set the new world matrix for the pose bone
+            self.set_world_matrix(target, combined_rotation_in_world)
+        else:
+            target.rotation_mode = "QUATERNION"
+            target.rotation_quaternion = combined_rotation_in_world @ target.rotation_quaternion
+
+    import mathutils
+
+    def set_world_translation(self, pose_bone, world_delta_translation):
+        """
+        Sets the world translation of a given pose bone additively in view space.
+
+        Args:
+        - pose_bone (bpy.types.PoseBone): The pose bone to modify.
+        - view_rotation (mathutils.Quaternion): The rotation of the active viewport.
+        - delta_translation (mathutils.Vector): The delta translation in view space.
+        """
+        armature = pose_bone.id_data
+        # bone_world_matrix = armature.matrix_world @ pose_bone.matrix
+        # translated_bone_mw = Matrix.Translation(world_delta_translation)
+        bone_world_matrix = armature.convert_space(pose_bone=pose_bone,
+                                                   matrix=pose_bone.matrix,
+                                                   from_space='POSE',
+                                                   to_space='WORLD')
+        print(f"world delta {world_delta_translation}")
+        bone_world_matrix.translation += world_delta_translation
+
+        pose_bone.matrix = armature.convert_space(pose_bone=pose_bone,
+                                            matrix=bone_world_matrix,
+                                            from_space='WORLD',
+                                            to_space='POSE')
+        # old_matrix = pose_bone.matrix
+        #
+        # pose_bone.location += new_matrix.to_translation()
+        # print(f"delta v {world_delta_translation}\n delta m {new_matrix.to_translation()}\n pb {old_matrix.to_translation()} -> {pose_bone.matrix.to_translation()}")
+        #
+        # # Convert world-space delta translation to bone's local space
+        # world_to_local_matrix = bone_world_matrix.inverted()
+        # tr = world_to_local_matrix @ world_delta_translation
+        # print(f"bone {pose_bone.location} local {delta_translation_local}")
+        #
+        # delta_translation_local = armature.convert_space(pose_bone=pose_bone,
+        #                                                  matrix=Matrix.Translation(world_delta_translation),
+        #                                                  from_space='WORLD',
+        #                                                  to_space='LOCAL').to_translation()
+        # # Add the delta translation to the bone's current local location
+        # pose_bone.location += delta_translation_local
+        # # Get the current world matrix of the pose bone
 
     @staticmethod
     def is_shortcut_invoked(event):
@@ -532,15 +626,13 @@ class ModalOperator(bpy.types.Operator):
         return False
 
     def get_active_object(self):
-        obj = bpy.context.active_object
-        if obj.type == 'ARMATURE':
-            selected_pose_bones = [bone for bone in obj.pose.bones if bone.bone.select]
-            for bone in selected_pose_bones:
-                print(bone.name)
-            return selected_pose_bones[0]
+        return bpy.context.active_pose_bone or bpy.context.active_object
 
-        else:
-            return obj
+    def find_first_3d_viewport(self):
+        for area in bpy.context.screen.areas:
+            if area.type == 'VIEW_3D':
+                return area.spaces[0].region_3d
+        return None
 
     def modal(self, context, event):
         if self.is_shortcut_invoked(event):
@@ -573,15 +665,20 @@ class ModalOperator(bpy.types.Operator):
                 else:
                     delta_rotation[mapped_attr] = first_state_rot[binding_value] - state_value
 
-            print(f"states {state}")
+            # print(f"states {state}")
             # Update locations and rotations
             target = self.get_active_object()
             # Get the current view matrix
             view_rotation = bpy.context.region_data.view_rotation
             translation_vector = (delta_location * self.sens).vector
-            target.location += view_rotation @ translation_vector
+            delta_translation = view_rotation @ translation_vector
+            viewport = self.find_first_3d_viewport()
+            delta_matrix = viewport.view_matrix.to_3x3().to_4x4().inverted() @ translation_vector
+            print(f"delta trans {delta_translation}")
+            self.set_world_translation(target, delta_matrix)
+            # target.location += view_rotation @ translation_vector
             controller_rotation = (delta_rotation * self.sensr).as_euler()
-            self.apply_rotation_in_view_space(view_rotation, target, controller_rotation)
+            # self.apply_rotation_in_view_space(view_rotation, target, controller_rotation)
             # Set current position value to variable for next increment
             self.value_location = target.location.copy()
             self.value_rotation = target.rotation_euler.copy()
