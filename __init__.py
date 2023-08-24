@@ -17,6 +17,8 @@
 
 from datetime import datetime
 
+import utils
+
 bl_info = {
     "name": "TelekiNDOF",
     "description": "This addon add mouvement control to object with 3d Connexion Space Mouse, I want a take the opportunity to thanks github user johnhw for the code pyspacenavigator used by this addon",
@@ -34,7 +36,6 @@ bl_info = {
 import sys
 import os
 import subprocess
-
 # py_exec = str(sys.executable)
 # # ensure pip is installed
 # subprocess.call([py_exec, "-m", "ensurepip", "--user"])
@@ -76,6 +77,7 @@ import bpy
 import bpy.utils.previews
 from bpy.props import FloatVectorProperty, FloatProperty
 from mathutils import Vector, Matrix, Quaternion, Euler
+from . import space_utils
 
 #   INITALIZE VARIABLES
 telekindof = {
@@ -561,8 +563,7 @@ class ModalOperator(bpy.types.Operator):
         combined_rotation_in_world = view_rot @ rot @ view_rot.inverted()
 
         # Check if the target is a pose bone
-        if isinstance(target, bpy.types.PoseBone):
-
+        if utils.is_pose_bone(target):
             # Set the new world matrix for the pose bone
             self.set_world_matrix(target, combined_rotation_in_world)
         else:
@@ -570,47 +571,6 @@ class ModalOperator(bpy.types.Operator):
             target.rotation_quaternion = combined_rotation_in_world @ target.rotation_quaternion
 
     import mathutils
-
-    def set_world_translation(self, pose_bone, world_delta_translation):
-        """
-        Sets the world translation of a given pose bone additively in view space.
-
-        Args:
-        - pose_bone (bpy.types.PoseBone): The pose bone to modify.
-        - view_rotation (mathutils.Quaternion): The rotation of the active viewport.
-        - delta_translation (mathutils.Vector): The delta translation in view space.
-        """
-        armature = pose_bone.id_data
-        # bone_world_matrix = armature.matrix_world @ pose_bone.matrix
-        # translated_bone_mw = Matrix.Translation(world_delta_translation)
-        bone_world_matrix = armature.convert_space(pose_bone=pose_bone,
-                                                   matrix=pose_bone.matrix,
-                                                   from_space='POSE',
-                                                   to_space='WORLD')
-        print(f"world delta {world_delta_translation}")
-        bone_world_matrix.translation += world_delta_translation
-
-        pose_bone.matrix = armature.convert_space(pose_bone=pose_bone,
-                                            matrix=bone_world_matrix,
-                                            from_space='WORLD',
-                                            to_space='POSE')
-        # old_matrix = pose_bone.matrix
-        #
-        # pose_bone.location += new_matrix.to_translation()
-        # print(f"delta v {world_delta_translation}\n delta m {new_matrix.to_translation()}\n pb {old_matrix.to_translation()} -> {pose_bone.matrix.to_translation()}")
-        #
-        # # Convert world-space delta translation to bone's local space
-        # world_to_local_matrix = bone_world_matrix.inverted()
-        # tr = world_to_local_matrix @ world_delta_translation
-        # print(f"bone {pose_bone.location} local {delta_translation_local}")
-        #
-        # delta_translation_local = armature.convert_space(pose_bone=pose_bone,
-        #                                                  matrix=Matrix.Translation(world_delta_translation),
-        #                                                  from_space='WORLD',
-        #                                                  to_space='LOCAL').to_translation()
-        # # Add the delta translation to the bone's current local location
-        # pose_bone.location += delta_translation_local
-        # # Get the current world matrix of the pose bone
 
     @staticmethod
     def is_shortcut_invoked(event):
@@ -625,14 +585,6 @@ class ModalOperator(bpy.types.Operator):
                     return True
         return False
 
-    def get_active_object(self):
-        return bpy.context.active_pose_bone or bpy.context.active_object
-
-    def find_first_3d_viewport(self):
-        for area in bpy.context.screen.areas:
-            if area.type == 'VIEW_3D':
-                return area.spaces[0].region_3d
-        return None
 
     def modal(self, context, event):
         if self.is_shortcut_invoked(event):
@@ -665,20 +617,26 @@ class ModalOperator(bpy.types.Operator):
                 else:
                     delta_rotation[mapped_attr] = first_state_rot[binding_value] - state_value
 
-            # print(f"states {state}")
-            # Update locations and rotations
-            target = self.get_active_object()
+            target = space_utils.get_active_object()
+            viewport = space_utils.get_region3d()
+
             # Get the current view matrix
-            view_rotation = bpy.context.region_data.view_rotation
+            view_rotation = viewport.view_rotation
+            rotation_quat = (delta_rotation * self.sensr).as_euler().to_quaternion()
+            rotation_in_view = view_rotation @ rotation_quat @ view_rotation.inverted()
+
             translation_vector = (delta_location * self.sens).vector
+            translation_in_view = viewport.view_matrix.to_3x3().to_4x4().inverted() @ translation_vector
+
+            transform_matrix = rotation_in_view.to_matrix().to_4x4()
+            transform_matrix.translation = translation_in_view
+
             delta_translation = view_rotation @ translation_vector
-            viewport = self.find_first_3d_viewport()
             delta_matrix = viewport.view_matrix.to_3x3().to_4x4().inverted() @ translation_vector
             print(f"delta trans {delta_translation}")
-            self.set_world_translation(target, delta_matrix)
-            # target.location += view_rotation @ translation_vector
+            space_utils.set_world_transformation(target, transform_matrix)
             controller_rotation = (delta_rotation * self.sensr).as_euler()
-            # self.apply_rotation_in_view_space(view_rotation, target, controller_rotation)
+            #self.apply_rotation_in_view_space(view_rotation, target, controller_rotation)
             # Set current position value to variable for next increment
             self.value_location = target.location.copy()
             self.value_rotation = target.rotation_euler.copy()
