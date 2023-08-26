@@ -1,93 +1,51 @@
 import bpy
+from bpy_types import PoseBone
+from mathutils import Quaternion, Matrix
+from typing import Callable
+
+from . import utils
 
 
-def get_region3d():
-    for area in bpy.context.screen.areas:
-        if area.type == 'VIEW_3D':
-            for region in area.regions:
-                if region.type == 'WINDOW':
-                    return area.spaces[0].region_3d
-    return None
-
-
-# # Get the active object
-# obj = bpy.context.active_object
-#
-# # Get the 3D view matrix
-# view_matrix = get_region3d()
-#
-# if view_matrix:
-#     # The forward direction for the view is the negative Z-axis
-#     view_direction = -view_matrix.to_3x3().col[2]
-#
-#     # Scale the direction vector by the desired distance
-#     distance = 1
-#     move_vector = view_direction.normalized() * distance
-#
-#     # Update the object's location
-#     obj.location += move_vector
-
-
-def get_active_object():
-    return bpy.context.active_pose_bone or bpy.context.active_object
-
-
-def set_world_transformation(target, world_transform_matrix):
-    """
-    Sets the world translation of a given pose bone additively in view space.
-
-    Args:
-    - pose_bone (bpy.types.PoseBone): The pose bone to modify.
-    - view_rotation (mathutils.Quaternion): The rotation of the active viewport.
-    - delta_translation (mathutils.Vector): The delta translation in view space.
-    """
+def apply_translation(target, world_delta_trans):
     if isinstance(target, bpy.types.PoseBone):
-        print("is bone")
-        pose_bone = target
-        armature = pose_bone.id_data
-        # bone_world_matrix = armature.matrix_world @ pose_bone.matrix
-        # translated_bone_mw = Matrix.Translation(world_delta_translation)
-        bone_world_matrix = armature.convert_space(pose_bone=pose_bone,
-                                                   matrix=pose_bone.matrix,
-                                                   from_space='POSE',
-                                                   to_space='WORLD')
-        print(f"world delta {world_transform_matrix}")
-        bone_world_matrix @= world_transform_matrix
+        def add_translation(matrix: Matrix):
+            matrix.translation += world_delta_trans
+            return matrix
+        apply_world_matrix_to_bone(target, add_translation)
 
-        pose_bone.matrix = armature.convert_space(pose_bone=pose_bone,
-                                                  matrix=bone_world_matrix,
-                                                  from_space='WORLD',
-                                                  to_space='POSE')
     else:
-        target.matrix_world @= world_transform_matrix
+        target.matrix_world.translation += world_delta_trans
 
-def set_world_translation(target, world_delta_translation):
-    """
-    Sets the world translation of a given pose bone additively in view space.
 
-    Args:
-    - pose_bone (bpy.types.PoseBone): The pose bone to modify.
-    - view_rotation (mathutils.Quaternion): The rotation of the active viewport.
-    - delta_translation (mathutils.Vector): The delta translation in view space.
-    """
-    if isinstance(target, bpy.types.PoseBone):
-        print("is bone")
-        pose_bone = target
-        armature = pose_bone.id_data
-        # bone_world_matrix = armature.matrix_world @ pose_bone.matrix
-        # translated_bone_mw = Matrix.Translation(world_delta_translation)
-        bone_world_matrix = armature.convert_space(pose_bone=pose_bone,
-                                                   matrix=pose_bone.matrix,
-                                                   from_space='POSE',
-                                                   to_space='WORLD')
-        print(f"world delta {world_delta_translation}")
-        bone_world_matrix.translation += world_delta_translation
+def convert_rot_active_view_to_world(view_quat: Quaternion) -> Quaternion:
+    view_rot = utils.get_active_region3d()
+    return view_rot @ view_quat @ view_rot.inverted()
 
-        pose_bone.matrix = armature.convert_space(pose_bone=pose_bone,
-                                                  matrix=bone_world_matrix,
-                                                  from_space='WORLD',
-                                                  to_space='POSE')
+
+def apply_rotation_in_view_space(target, view_rot, view_delta_quat):
+    world_delta_quat = convert_rot_active_view_to_world(view_delta_quat.to_matrix())
+
+    # Check if the target is a pose bone
+    if utils.is_pose_bone(target):
+        def add_rotation(matrix: Matrix):
+            loc, rot, scale = matrix.decompose()
+            rot = world_delta_quat @ rot
+            return Matrix.LocRotScale(loc, rot, scale)
+
+        apply_world_matrix_to_bone(target, add_rotation)
     else:
-        target.matrix_world.translation += world_delta_translation
+        target.rotation_mode = "QUATERNION"
+        target.rotation_quaternion = world_delta_quat @ target.rotation_quaternion
 
 
+def apply_world_matrix_to_bone(pose_bone: PoseBone, func: Callable[[Matrix], None]) -> None:
+    armature = pose_bone.id_data
+    bone_world_matrix = armature.convert_space(pose_bone=pose_bone,
+                                               matrix=pose_bone.matrix,
+                                               from_space='POSE',
+                                               to_space='WORLD')
+    modified = func(bone_world_matrix)
+    pose_bone.matrix = armature.convert_space(pose_bone=pose_bone,
+                                              matrix=modified,
+                                              from_space='WORLD',
+                                              to_space='POSE')
