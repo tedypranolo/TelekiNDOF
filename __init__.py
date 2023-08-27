@@ -15,9 +15,7 @@
 # This code is generated from nodes and is not intended for manual editing.
 # You can find out more about Serpens at <https://blendermarket.com/products/serpens>.
 
-from datetime import datetime
-
-import utils
+from .ndof_operator import NdofOperator
 
 bl_info = {
     "name": "TelekiNDOF",
@@ -35,7 +33,7 @@ bl_info = {
 # --------------------   IMPORTS
 import sys
 import os
-import subprocess
+
 # py_exec = str(sys.executable)
 # # ensure pip is installed
 # subprocess.call([py_exec, "-m", "ensurepip", "--user"])
@@ -71,13 +69,8 @@ if "bpy" in locals():
 else:
     from . import spacenavigator
 
-from .threeple import Threeple
-
 import bpy
 import bpy.utils.previews
-from bpy.props import FloatVectorProperty, FloatProperty
-from mathutils import Vector, Matrix, Quaternion, Euler
-from . import space_utils
 
 #   INITALIZE VARIABLES
 telekindof = {
@@ -231,11 +224,6 @@ def sn_cast_enum(string, enum_values):
     return string
 
 
-# --------------------   IMPERATIVE CODE
-#   TelekiNDOF
-addon_keymaps = {}
-
-
 # --------------------   EVALUATED CODE
 #    TelekiNDOF
 class SNA_PT_Axis_Sensitivity_9D7BA(bpy.types.Panel):
@@ -284,8 +272,8 @@ class SNA_PT_Shortcut_B5987(bpy.types.Panel):
     def draw(self, context):
         try:
             layout = self.layout
-            if "9DCCD" in addon_keymaps:
-                _, kmi = addon_keymaps["9DCCD"]
+            if "9DCCD" in NdofOperator.addon_keymaps:
+                _, kmi = NdofOperator.addon_keymaps["9DCCD"]
                 layout.prop(kmi, "type", text=r"Telekinesys Shortcut", full_event=True, toggle=False)
             else:
                 layout.label(text="Couldn't find keymap item!", icon="ERROR")
@@ -440,270 +428,6 @@ class SNA_PT_Action_FC1AB(bpy.types.Panel):
             print(str(exc) + " | Error in Action panel")
 
 
-def register_key_9DCCD():
-    kc = bpy.context.window_manager.keyconfigs.addon
-    if kc:
-        km = kc.keymaps.new(name="Window", space_type="EMPTY")
-        kmi = km.keymap_items.new("sna.telekin",
-                                  type="W",
-                                  value="PRESS",
-                                  repeat=False,
-                                  ctrl=True,
-                                  alt=False,
-                                  shift=False)
-        addon_keymaps['9DCCD'] = (km, kmi)
-
-
-class ModalOperator(bpy.types.Operator):
-    """Move an object with the mouse, example"""
-    bl_idname = "object.modal_operator"
-    bl_label = "Simple Modal Operator"
-
-    # Location related properties
-    first_state_location: FloatVectorProperty(size=3)
-    first_value_location: FloatVectorProperty(size=3)
-    value_location: FloatVectorProperty(size=3)
-
-    # Rotation related properties
-    first_state_rotation: FloatVectorProperty(size=3, name="First State Rotation")
-    first_value_rotation: FloatVectorProperty(size=3, name="First Value Rotation")
-    value_rotation: FloatVectorProperty(size=3, name="Value Rotation")
-
-    # Sensitivities for translation and rotation
-    sens: FloatVectorProperty(size=3, name="Translation Sensitivity")
-    sensr: FloatVectorProperty(size=3, name="Rotation Sensitivity")
-
-    # Inversions
-    invup: FloatProperty()
-    invfront: FloatProperty()
-    invright: FloatProperty()
-    invroll: FloatProperty()
-    invpitch: FloatProperty()
-    invyaw: FloatProperty()
-
-    def move_and_rotate(obj, state, panel_properties):
-
-        # Process values using the new method
-        x = panel_properties.process_value(state, 'x')
-        y = panel_properties.process_value(state, 'y')
-        z = panel_properties.process_value(state, 'z')
-
-        # Move the object
-        obj.location.x += x
-        obj.location.y += y
-        obj.location.z += z
-
-        # Process values for rotations
-        pitch = panel_properties.process_value(state, 'pitch')
-        yaw = panel_properties.process_value(state, 'yaw')
-        roll = panel_properties.process_value(state, 'roll')
-
-        # Rotate the object
-        obj.rotation_euler.x += pitch
-        obj.rotation_euler.y += yaw
-        obj.rotation_euler.z += roll
-
-    def get_combined_parent_rotation(self, bone):
-        """Recursively get the combined rotation of all parent bones."""
-        if bone.parent:
-            return bone.parent.rotation_quaternion @ self.get_combined_parent_rotation(bone.parent)
-        else:
-            return Quaternion((1, 0, 0, 0))
-
-    def get_pose_bone_world_matrix(self, pose_bone):
-        """Get the world matrix of a pose bone."""
-        armature_world_matrix = pose_bone.id_data.matrix_world
-        return armature_world_matrix @ pose_bone.matrix
-
-    def get_world_matrix(self, pose_bone):
-        """
-        Recursively compute the world matrix of a pose bone.
-        """
-        armature_obj = pose_bone.id_data
-        return armature_obj.matrix_world @ pose_bone.matrix
-        # if pose_bone.parent:
-        #     return self.get_world_matrix(pose_bone.parent) @ pose_bone.matrix
-        # else:
-        #     return armature_obj.matrix_world @ pose_bone.matrix_basis
-
-    def set_world_matrix(self, pose_bone, additive_quaternion):
-        """
-        Sets the world rotation of a given pose bone additively using a quaternion.
-        """
-        armature_obj = pose_bone.id_data
-
-        # Get the current world matrix of the pose bone
-        current_world_matrix = self.get_world_matrix(pose_bone)
-
-        # Extract location, rotation, and scale from the current world matrix
-        world_loc, world_rot, world_scale = current_world_matrix.decompose()
-        print(f"world rot {world_rot} {additive_quaternion}")
-        # Apply the additive quaternion to the world rotation
-        new_world_rot = world_rot @ additive_quaternion
-
-        # Construct the new world matrix
-        new_world_matrix = Matrix.Translation(world_loc)
-        new_world_matrix = new_world_matrix @ new_world_rot.to_matrix().to_4x4()
-        new_world_matrix = new_world_matrix @ Matrix.Diagonal(world_scale).to_4x4()
-
-        if pose_bone.parent:
-            parent_world_matrix = self.get_world_matrix(pose_bone.parent)
-            local_matrix = parent_world_matrix.inverted() @ new_world_matrix
-        else:
-            # If no parent, then the local matrix is derived from the armature's world matrix
-            local_matrix = armature_obj.matrix_world.inverted() @ new_world_matrix
-
-        loc, rot, scale = local_matrix.decompose()
-        pose_bone.location = loc
-        pose_bone.rotation_quaternion = rot
-        pose_bone.scale = scale
-
-    def apply_rotation_in_view_space(self, view_rot, target, controller_rot):
-        rot = controller_rot.to_quaternion()
-        combined_rotation_in_world = view_rot @ rot @ view_rot.inverted()
-
-        # Check if the target is a pose bone
-        if utils.is_pose_bone(target):
-            # Set the new world matrix for the pose bone
-            self.set_world_matrix(target, combined_rotation_in_world)
-        else:
-            target.rotation_mode = "QUATERNION"
-            target.rotation_quaternion = combined_rotation_in_world @ target.rotation_quaternion
-
-    import mathutils
-
-    @staticmethod
-    def is_shortcut_invoked(event):
-        _, kmi = addon_keymaps.get("9DCCD", (None, None))
-        if kmi:
-            # Check against the registered keymap
-            if event.type == kmi.type and event.value == 'PRESS':
-                if event.ctrl == kmi.ctrl and \
-                        event.alt == kmi.alt and \
-                        event.shift == kmi.shift:
-                    print("Finishing the modal operator due to same shortcut.")
-                    return True
-        return False
-
-
-    def modal(self, context, event):
-        if self.is_shortcut_invoked(event):
-            return {"FINISHED"}
-
-        if event.type == 'NDOF_MOTION':
-
-            state = spacenavigator.read()
-
-            # Mappings
-            bindings = ['upbinding', 'rightbinding', 'frontbinding', 'rollbinding', 'pitchbinding', 'yawbinding']
-            states = {'upbinding': 'z', 'rightbinding': 'x', 'frontbinding': 'y', 'rollbinding': 'roll',
-                      'pitchbinding': 'pitch', 'yawbinding': 'yaw'}
-            inversions = {'upbinding': 'invup', 'rightbinding': 'invright', 'frontbinding': 'invfront',
-                          'rollbinding': 'invroll', 'pitchbinding': 'invpitch', 'yawbinding': 'invyaw'}
-
-            # Initialize vectors
-            delta_location = Threeple((0, 0, 0))
-            delta_rotation = Threeple((0, 0, 0))
-
-            first_state_loc = Threeple(self.first_state_location)
-            first_state_rot = Threeple(self.first_state_rotation)
-            # Compute deltas
-            for binding in bindings:
-                binding_value = getattr(bpy.context.scene, binding)
-                state_value = getattr(state, states[binding]) * getattr(self, inversions[binding])
-                mapped_attr = states[binding]
-                if binding_value in ['x', 'y', 'z']:
-                    delta_location[mapped_attr] = first_state_loc[binding_value] - state_value
-                else:
-                    delta_rotation[mapped_attr] = first_state_rot[binding_value] - state_value
-
-            target = space_utils.get_active_object()
-            viewport = space_utils.get_region3d()
-
-            # Get the current view matrix
-            view_rotation = viewport.view_rotation
-            rotation_quat = (delta_rotation * self.sensr).as_euler().to_quaternion()
-            rotation_in_view = view_rotation @ rotation_quat @ view_rotation.inverted()
-
-            translation_vector = (delta_location * self.sens).vector
-            translation_in_view = viewport.view_matrix.to_3x3().to_4x4().inverted() @ translation_vector
-
-            transform_matrix = rotation_in_view.to_matrix().to_4x4()
-            transform_matrix.translation = translation_in_view
-
-            delta_translation = view_rotation @ translation_vector
-            delta_matrix = viewport.view_matrix.to_3x3().to_4x4().inverted() @ translation_vector
-            print(f"delta trans {delta_translation}")
-            space_utils.set_world_transformation(target, transform_matrix)
-            controller_rotation = (delta_rotation * self.sensr).as_euler()
-            #self.apply_rotation_in_view_space(view_rotation, target, controller_rotation)
-            # Set current position value to variable for next increment
-            self.value_location = target.location.copy()
-            self.value_rotation = target.rotation_euler.copy()
-        elif event.type == 'LEFTMOUSE':
-            return {'FINISHED'}
-        elif event.type in {'RIGHTMOUSE', 'ESC'}:
-            context.object.location = self.first_value_location
-            context.object.rotation_euler = self.first_value_rotation
-            return {'CANCELLED'}
-        return {'RUNNING_MODAL'}
-
-    is_running = False
-
-    def invoke(self, context, event):
-        if self.is_running:
-            print("Stopping the modal operator.")
-            self.is_running = False
-            return {'CANCELLED'}
-        else:
-            print("Starting the modal operator.")
-            self.is_running = True
-            success = spacenavigator.open()
-            if context.object:
-                # Initialize first_state vectors
-                self.first_state_location = Vector((0, 0, 0))
-                self.first_state_rotation = Vector((0, 0, 0))
-
-                # Copy object's location and rotation
-                self.first_value_location = context.object.location.copy()
-                self.value_location = context.object.location.copy()
-                self.first_value_rotation = context.object.rotation_euler.copy()
-                self.value_rotation = context.object.rotation_euler.copy()
-
-                # Sensitivities
-                self.sens = bpy.context.scene.transsens
-                self.sensr = bpy.context.scene.rotsens
-
-                if bpy.context.scene.upinv:
-                    self.invup = -1
-                else:
-                    self.invup = 1
-                if bpy.context.scene.frontinv:
-                    self.invfront = -1
-                else:
-                    self.invfront = 1
-                if bpy.context.scene.rightinv:
-                    self.invright = -1
-                else:
-                    self.invright = 1
-                if bpy.context.scene.rollinv:
-                    self.invroll = -1
-                else:
-                    self.invroll = 1
-                if bpy.context.scene.pitchinv:
-                    self.invpitch = -1
-                else:
-                    self.invpitch = 1
-                if bpy.context.scene.yawinv:
-                    self.invyaw = -1
-                else:
-                    self.invyaw = 1
-                context.window_manager.modal_handler_add(self)
-                return {'RUNNING_MODAL'}
-            else:
-                self.report({'WARNING'}, "No active object, could not finish")
-                return {'CANCELLED'}
-
 
 class SNA_OT_Telekin(bpy.types.Operator):
     bl_idname = "sna.telekin"
@@ -718,7 +442,7 @@ class SNA_OT_Telekin(bpy.types.Operator):
     def execute(self, context):
         try:
             print("telekin")
-            bpy.ops.object.modal_operator('INVOKE_DEFAULT')
+            bpy.ops.object.space_transform('INVOKE_DEFAULT')
         except Exception as exc:
             print(str(exc) + " | Error in execute function of telekin")
         return {"FINISHED"}
@@ -821,29 +545,26 @@ def register():
     bpy.utils.register_class(SNA_PT_Shortcut_2C5D2)
     bpy.utils.register_class(SNA_PT_Axis_Settings_8B68A)
     bpy.utils.register_class(SNA_PT_Action_FC1AB)
-    register_key_9DCCD()
+    NdofOperator.register_keymap()
     bpy.utils.register_class(SNA_OT_Telekin)
     bpy.utils.register_class(SNA_PT_Axis_Sensitivity_9D7BA)
     bpy.utils.register_class(SNA_PT_Shortcut_B5987)
     bpy.utils.register_class(SNA_PT_Inverse_Axis_3C0BA)
     bpy.utils.register_class(SNA_PT_Axis_binding_220EE)
-    bpy.utils.register_class(ModalOperator)
+    bpy.utils.register_class(NdofOperator)
 
 
 # --------------------   UNREGISTER ADDON
 def unregister():
     sn_unregister_icons()
     sn_unregister_properties()
-    bpy.utils.unregister_class(ModalOperator)
+    bpy.utils.unregister_class(NdofOperator)
     bpy.utils.unregister_class(SNA_PT_Axis_binding_220EE)
     bpy.utils.unregister_class(SNA_PT_Inverse_Axis_3C0BA)
     bpy.utils.unregister_class(SNA_PT_Shortcut_B5987)
     bpy.utils.unregister_class(SNA_PT_Axis_Sensitivity_9D7BA)
     bpy.utils.unregister_class(SNA_OT_Telekin)
-    for key in addon_keymaps:
-        km, kmi = addon_keymaps[key]
-        km.keymap_items.remove(kmi)
-    addon_keymaps.clear()
+    NdofOperator.unregister_keymap()
     bpy.utils.unregister_class(SNA_PT_Action_FC1AB)
     bpy.utils.unregister_class(SNA_PT_Axis_Settings_8B68A)
     bpy.utils.unregister_class(SNA_PT_Shortcut_2C5D2)

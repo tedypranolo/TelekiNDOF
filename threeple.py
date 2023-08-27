@@ -3,6 +3,8 @@ from .item_access import ItemAccess
 
 
 class Threeple(ItemAccess):
+    vector: Vector
+
     def __init__(self, *args):
         if len(args) == 1:
             if isinstance(args[0], (tuple, list)) and len(args[0]) == 3:

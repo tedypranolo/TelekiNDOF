@@ -4,15 +4,15 @@ from mathutils import Quaternion, Matrix, Vector
 from typing import Callable
 
 from . import utils
-from utils import PoseBoneOrObject
+from .utils import PoseBoneOrObject
 
 
-def apply_rotation_in_view(target: PoseBoneOrObject, view_delta_quat):
-    world_delta_quat = convert_rot_view_to_world(view_delta_quat.to_matrix())
+def rotate_in_view(target: PoseBoneOrObject, view_delta_quat: Quaternion):
+    world_delta_quat = convert_rot_view_to_world(view_delta_quat)
     apply_rotation(target, world_delta_quat)
 
 
-def apply_translation_in_view(target: PoseBoneOrObject, view_delta_trans):
+def translate_in_view(target: PoseBoneOrObject, view_delta_trans: Vector):
     world_delta_trans = convert_trans_view_to_world(view_delta_trans)
     apply_translation(target, world_delta_trans)
 
@@ -43,16 +43,16 @@ def apply_translation(target, world_delta_trans):
 
 
 def convert_rot_view_to_world(view_quat: Quaternion) -> Quaternion:
-    view_rot = utils.get_active_region3d()
+    view_rot = utils.get_active_region3d().view_rotation
     return view_rot @ view_quat @ view_rot.inverted()
 
 
 def convert_trans_view_to_world(view_trans: Vector) -> Vector:
-    view_rot = utils.get_active_region3d()
+    view_rot = utils.get_active_region3d().view_rotation
     return view_rot @ view_trans
 
 
-def apply_world_matrix_to_bone(pose_bone: PoseBone, func: Callable[[Matrix], None]) -> None:
+def apply_world_matrix_to_bone(pose_bone: PoseBone, func: Callable[[Matrix], Matrix]) -> None:
     armature = pose_bone.id_data
     bone_world_matrix = armature.convert_space(pose_bone=pose_bone,
                                                matrix=pose_bone.matrix,
