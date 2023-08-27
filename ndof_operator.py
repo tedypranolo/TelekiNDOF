@@ -9,8 +9,8 @@ from .threeple import Threeple
 
 class NdofOperator(bpy.types.Operator):
     """Move an object with the mouse, example"""
-    bl_idname = "object.space_transform"
-    bl_label = "Simple Modal Operator"
+    bl_idname = "object.ndof_transform"
+    bl_label = "NDOF transform"
 
     addon_keymaps = {}
     # Location related properties
@@ -24,8 +24,10 @@ class NdofOperator(bpy.types.Operator):
     value_rotation: FloatVectorProperty(size=3, name="Value Rotation")
 
     # Sensitivities for translation and rotation
-    sens: FloatVectorProperty(size=3, name="Translation Sensitivity")
-    sensr: FloatVectorProperty(size=3, name="Rotation Sensitivity")
+    all_trans_sens: FloatProperty(name="All Translation Sensitivity")
+    trans_sens: FloatVectorProperty(size=3, name="Translation Sensitivity")
+    all_rot_sens: FloatProperty(name="All Rotation Sensitivity")
+    rot_sens: FloatVectorProperty(size=3, name="Rotation Sensitivity")
 
     # Inversions
     invup: FloatProperty()
@@ -81,8 +83,8 @@ class NdofOperator(bpy.types.Operator):
 
             target = utils.get_active_object()
 
-            rotation_quat = (delta_rotation * self.sensr).as_euler().to_quaternion()
-            delta_trans = (delta_location * self.sens).vector
+            rotation_quat = (delta_rotation * self.rot_sens).as_euler().to_quaternion()
+            delta_trans = (delta_location * self.trans_sens).vector
             space_utils.translate_in_view(target, delta_trans)
             space_utils.rotate_in_view(target, rotation_quat)
             self.value_location = target.location.copy()
@@ -118,8 +120,10 @@ class NdofOperator(bpy.types.Operator):
                 self.value_rotation = context.object.rotation_euler.copy()
 
                 # Sensitivities
-                self.sens = bpy.context.scene.transsens
-                self.sensr = bpy.context.scene.rotsens
+                self.all_trans_sens = bpy.context.scene.all_trans_sens
+                self.trans_sens = bpy.context.scene.transsens
+                self.all_rot_sens  = bpy.context.scene.all_rot_sens
+                self.rot_sens = bpy.context.scene.rotsens
 
                 if bpy.context.scene.upinv:
                     self.invup = -1

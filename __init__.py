@@ -71,6 +71,7 @@ else:
 
 import bpy
 import bpy.utils.previews
+from mathutils import Vector
 
 #   INITALIZE VARIABLES
 telekindof = {
@@ -246,7 +247,9 @@ class SNA_PT_Axis_Sensitivity_9D7BA(bpy.types.Panel):
     def draw(self, context):
         try:
             layout = self.layout
+            layout.prop(bpy.context.scene, 'all_trans_sens', text=r"All Translations", emboss=True, slider=True)
             layout.prop(bpy.context.scene, 'transsens', text=r"Translation", emboss=True, slider=False, )
+            layout.prop(bpy.context.scene, 'all_rot_sens', text=r"All Rotations", emboss=True, slider=True)
             layout.prop(bpy.context.scene, 'rotsens', text=r"Rotation", emboss=True, slider=False, )
         except Exception as exc:
             print(str(exc) + " | Error in Axis Sensitivity subpanel")
@@ -428,7 +431,6 @@ class SNA_PT_Action_FC1AB(bpy.types.Panel):
             print(str(exc) + " | Error in Action panel")
 
 
-
 class SNA_OT_Telekin(bpy.types.Operator):
     bl_idname = "sna.telekin"
     bl_label = "telekin"
@@ -442,7 +444,7 @@ class SNA_OT_Telekin(bpy.types.Operator):
     def execute(self, context):
         try:
             print("telekin")
-            bpy.ops.object.space_transform('INVOKE_DEFAULT')
+            bpy.ops.object.ndof_transform('INVOKE_DEFAULT')
         except Exception as exc:
             print(str(exc) + " | Error in execute function of telekin")
         return {"FINISHED"}
@@ -505,16 +507,32 @@ def sn_register_properties():
     bpy.types.Scene.upinv = bpy.props.BoolProperty(name='UpInv', description='', options=set(), default=True)
     bpy.types.Scene.frontinv = bpy.props.BoolProperty(name='FrontInv', description='', options=set(), default=True)
     bpy.types.Scene.rightinv = bpy.props.BoolProperty(name='RightInv', description='', options=set(), default=True)
+
     bpy.types.Scene.transsens = bpy.props.FloatVectorProperty(name='TransSens',
                                                               description='Sensibility of movement in translation (x y z)',
                                                               subtype='NONE', unit='NONE', options=set(), precision=3,
                                                               default=(0.009999999776482582, 0.009999999776482582,
                                                                        0.009999999776482582), size=3, soft_min=0.0)
+
+    def all_trans_sens_update(self, context):
+        self.transsens = (self.all_trans_sens, self.all_trans_sens, self.all_trans_sens)
+
+    bpy.types.Scene.all_trans_sens = bpy.props.FloatProperty(name='AllTransSens', description='', options=set(),
+                                                             default=0.01, update=all_trans_sens_update, min=0.001,
+                                                             max=1)
+
     bpy.types.Scene.rotsens = bpy.props.FloatVectorProperty(name='RotSens',
                                                             description='Sensibility of movement in rotation (roll pitch yaw)',
                                                             subtype='NONE', unit='NONE', options=set(), precision=3,
                                                             default=(0.009999999776482582, 0.009999999776482582,
                                                                      0.009999999776482582), size=3, soft_min=0.0)
+
+    def all_rot_sens_update(self, context):
+        self.rotsens = (self.all_rot_sens, self.all_rot_sens, self.all_rot_sens)
+
+    bpy.types.Scene.all_rot_sens = bpy.props.FloatProperty(name='AllRotSens', description='', options=set(),
+                                                           default=0.001, update=all_rot_sens_update, min=0.001,
+                                                           max=1)
     bpy.types.Scene.pitchinv = bpy.props.BoolProperty(name='PitchInv', description='', options=set(), default=True)
     bpy.types.Scene.rollinv = bpy.props.BoolProperty(name='RollInv', description='', options=set(), default=True)
     bpy.types.Scene.yawinv = bpy.props.BoolProperty(name='YawInv', description='', options=set(), default=True)
