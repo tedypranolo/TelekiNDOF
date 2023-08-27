@@ -1,5 +1,5 @@
 import bpy
-from bpy.props import FloatVectorProperty, FloatProperty
+from bpy.props import FloatVectorProperty, FloatProperty, BoolProperty
 from mathutils import Vector
 from . import spacenavigator
 from . import space_utils
@@ -27,6 +27,7 @@ class NdofOperator(bpy.types.Operator):
     all_trans_sens: FloatProperty(name="All Translation Sensitivity")
     trans_sens: FloatVectorProperty(size=3, name="Translation Sensitivity")
     all_rot_sens: FloatProperty(name="All Rotation Sensitivity")
+    is_rot_enabled: BoolProperty(name="Is Rotation Enabled")
     rot_sens: FloatVectorProperty(size=3, name="Rotation Sensitivity")
 
     # Inversions
@@ -83,10 +84,9 @@ class NdofOperator(bpy.types.Operator):
 
             target = utils.get_active_object()
 
-            rotation_quat = (delta_rotation * self.rot_sens).as_euler().to_quaternion()
+            delta_rot = (delta_rotation * self.rot_sens).as_euler().to_quaternion()
             delta_trans = (delta_location * self.trans_sens).vector
-            space_utils.translate_in_view(target, delta_trans)
-            space_utils.rotate_in_view(target, rotation_quat)
+            space_utils.translate_and_rotate_in_view(target, delta_trans, delta_rot)
             self.value_location = target.location.copy()
             self.value_rotation = target.rotation_euler.copy()
         elif event.type == 'LEFTMOUSE':
@@ -122,7 +122,8 @@ class NdofOperator(bpy.types.Operator):
                 # Sensitivities
                 self.all_trans_sens = bpy.context.scene.all_trans_sens
                 self.trans_sens = bpy.context.scene.transsens
-                self.all_rot_sens  = bpy.context.scene.all_rot_sens
+                self.all_rot_sens = bpy.context.scene.all_rot_sens
+                self.is_rot_enabled = bpy.context.scene.is_rot_enabled
                 self.rot_sens = bpy.context.scene.rotsens
 
                 if bpy.context.scene.upinv:

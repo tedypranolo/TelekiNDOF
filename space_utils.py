@@ -17,6 +17,23 @@ def translate_in_view(target: PoseBoneOrObject, view_delta_trans: Vector):
     apply_translation(target, world_delta_trans)
 
 
+def translate_and_rotate_in_view(target: PoseBoneOrObject, view_delta_trans: Vector, view_delta_quat: Quaternion):
+    world_delta_trans = convert_trans_view_to_world(view_delta_trans)
+    world_delta_quat = convert_rot_view_to_world(view_delta_quat)
+    if utils.is_pose_bone(target):
+        def add_translation_and_rotation(matrix: Matrix):
+            loc, rot, scale = matrix.decompose()
+            rot = world_delta_quat @ rot
+            loc += world_delta_trans
+            return Matrix.LocRotScale(loc, rot, scale)
+
+        apply_world_matrix_to_bone(target, add_translation_and_rotation)
+    else:
+        target.matrix_world.translation += world_delta_trans
+        target.rotation_mode = "QUATERNION"
+        target.rotation_quaternion = world_delta_quat @ target.rotation_quaternion
+
+
 def apply_rotation(target, world_delta_quat):
     if utils.is_pose_bone(target):
         def add_rotation(matrix: Matrix):

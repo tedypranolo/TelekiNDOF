@@ -248,9 +248,12 @@ class SNA_PT_Axis_Sensitivity_9D7BA(bpy.types.Panel):
         try:
             layout = self.layout
             layout.prop(bpy.context.scene, 'all_trans_sens', text=r"All Translations", emboss=True, slider=True)
-            layout.prop(bpy.context.scene, 'transsens', text=r"Translation", emboss=True, slider=False, )
+
+            layout.prop(bpy.context.scene, 'transsens', text=r"Translation", emboss=True, slider=False)
             layout.prop(bpy.context.scene, 'all_rot_sens', text=r"All Rotations", emboss=True, slider=True)
-            layout.prop(bpy.context.scene, 'rotsens', text=r"Rotation", emboss=True, slider=False, )
+            layout.prop(bpy.context.scene, 'is_rot_enabled', icon_value=0, text=r"Rotation Enabled", emboss=True,
+                        toggle=False, invert_checkbox=False)
+            layout.prop(bpy.context.scene, 'rotsens', text=r"Rotation", emboss=True, slider=False)
         except Exception as exc:
             print(str(exc) + " | Error in Axis Sensitivity subpanel")
 
@@ -526,6 +529,8 @@ def sn_register_properties():
                                                             subtype='NONE', unit='NONE', options=set(), precision=3,
                                                             default=(0.009999999776482582, 0.009999999776482582,
                                                                      0.009999999776482582), size=3, soft_min=0.0)
+
+    bpy.types.Scene.is_rot_enabled = bpy.props.BoolProperty(name="IsRotEnabled", options=set(), default=True)
 
     def all_rot_sens_update(self, context):
         self.rotsens = (self.all_rot_sens, self.all_rot_sens, self.all_rot_sens)
